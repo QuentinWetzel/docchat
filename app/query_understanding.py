@@ -15,6 +15,7 @@ needed (see taxonomy.resolve_to_raw, applied in pipeline.py).
 """
 from __future__ import annotations
 
+import logging
 from functools import lru_cache
 
 from google.genai import types as genai_types
@@ -23,6 +24,8 @@ from llama_index.llms.google_genai import GoogleGenAI
 
 from .config import settings
 from .schema import MetadataFilterSpec, QueryUnderstanding
+
+logger = logging.getLogger(__name__)
 
 # Known facet vocabularies (decoded human labels). Sourced from the live index facets.
 # These keep the LLM honest; extend by querying Algolia facets periodically.
@@ -166,6 +169,7 @@ def understand_query(query: str) -> QueryUnderstanding:
     except Exception:
         # Never let query understanding failure break retrieval; fall back to an unfiltered
         # hybrid search on the raw query (i.e. what the pipeline did before this step existed).
+        logger.exception("Query understanding LLM call failed")
         return QueryUnderstanding(
             intent_type="hybrid",
             filters=MetadataFilterSpec(),

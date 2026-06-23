@@ -6,6 +6,7 @@ both legs consistently.
 """
 from __future__ import annotations
 
+import logging
 from functools import lru_cache
 from typing import Any, Iterator
 
@@ -36,6 +37,8 @@ _ENCODED_FIELDS = {
     "service_line": "ServiceLine",
     "document_purpose": "DocumentPurpose",
 }
+
+logger = logging.getLogger(__name__)
 
 _ANSWER_SYSTEM = """You are a precise assistant answering questions strictly from the provided
 slide excerpts (each from a PowerPoint deck in the company's document libraries). Rules:
@@ -153,6 +156,7 @@ class Pipeline:
                     yield {"type": "delta", "text": chunk.delta}
         except Exception:
             # Same degrade-don't-fail rule as the non-streaming path (see _generate).
+            logger.exception("LLM stream_chat failed")
             yield {"type": "delta", "text": _GENERATION_FAILED_MSG}
         yield {"type": "done"}
 
@@ -253,6 +257,7 @@ class Pipeline:
         except Exception:
             # e.g. the model hit a non-STOP finish reason (MAX_TOKENS, SAFETY, ...); no partial
             # content is recoverable from that path, so degrade instead of failing the request.
+            logger.exception("LLM chat failed")
             return (_GENERATION_FAILED_MSG, citations)
         return (resp.message.content or "", citations)
 
