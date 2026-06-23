@@ -14,9 +14,10 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-# Models cache on a mounted volume to avoid re-downloading bge-m3 + reranker each deploy.
+# Models cache on a Railway Volume mounted at /models (configured in the Railway dashboard,
+# not here -- Railway rejects the Dockerfile VOLUME instruction) to avoid re-downloading
+# bge-m3 + reranker on every deploy.
 ENV HF_HOME=/models
-VOLUME ["/models"]
 
 EXPOSE 8000
 # Railway provides $PORT; fall back to 8000 locally.
