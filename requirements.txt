@@ -1,0 +1,30 @@
+# --- LlamaIndex core + Vertex AI Gemini LLM ---
+llama-index-core>=0.12.46
+llama-index-llms-google-genai>=0.9.5
+google-genai>=1.52.0
+
+# --- Embeddings / rerank (bi-encoder + cross-encoder) ---
+# bge-m3 (bi-encoder) and bge-reranker-v2-m3 (cross-encoder) both load via these.
+FlagEmbedding>=1.3.0
+# FlagEmbedding 1.4.0's reranker calls a tokenizer API removed in transformers 5.x
+# (AttributeError: XLMRobertaTokenizer has no attribute prepare_for_model), despite
+# FlagEmbedding's own metadata loosely allowing <6.0.0. Pin below 5 until that's fixed upstream.
+transformers>=4.44.2,<5.0.0
+sentence-transformers>=3.0.0
+torch>=2.2.0
+
+# --- Semantic store: Postgres + pgvector ---
+psycopg[binary,pool]>=3.2.0
+pgvector>=0.3.6
+
+# --- Lexical leg: Algolia (REST client; MCP also supported, see algolia_leg.py) ---
+algoliasearch>=4.0.0
+
+# --- Service ---
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0
+pydantic>=2.7.0
+pydantic-settings>=2.3.0
+httpx>=0.27.0
+tenacity>=8.3.0
+python-dotenv>=1.0.0
