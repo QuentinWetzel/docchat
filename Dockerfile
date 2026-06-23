@@ -14,9 +14,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-# Models cache on a Railway Volume mounted at /models (configured in the Railway dashboard,
-# not here -- Railway rejects the Dockerfile VOLUME instruction) to avoid re-downloading
-# bge-m3 + reranker on every deploy.
+# bge-m3 + reranker (~4.5 GB combined) don't fit in Railway Hobby's 5 GB volume cap, so there's
+# no persistent volume here -- HF_HOME just lives on the container's own ephemeral disk and
+# re-downloads on every restart/redeploy.
 ENV HF_HOME=/models
 
 EXPOSE 8000

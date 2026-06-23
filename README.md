@@ -113,9 +113,11 @@ uvicorn app.server:app --host 0.0.0.0 --port ${PORT:-8000}
   ([aistudio.google.com/apikey](https://aistudio.google.com/apikey)) as a secret, the rest as
   plain variables. `DATABASE_URL` should use Railway's `${{<PostgresServiceName>.DATABASE_URL}}`
   reference picker rather than the public proxy URL, so it resolves over the private network.
-- The included `Dockerfile` / `railway.json` deploy the FastAPI service. The first boot downloads
-  the bge models (~2.3 GB); use a Railway volume mounted at `/models` and set `HF_HOME=/models`
-  to avoid re-downloading on every deploy.
+- The included `Dockerfile` / `railway.json` deploy the FastAPI service. Every boot downloads the
+  bge-m3 + reranker weights (~4.5 GB combined) to the container's ephemeral disk — there's no
+  persistent volume backing `HF_HOME=/models`, since that exceeds Railway Hobby's 5 GB volume cap.
+  On a Pro plan (or higher volume limit), add a volume mounted at `/models` to avoid the
+  re-download on every restart/redeploy.
 - If you raise the service's vCPU limit (Settings -> Resource Limits) to speed up reranking, also
   set `RERANK_NUM_THREADS` to that same number. `os.cpu_count()` reports the underlying host's
   core count, not the container's cgroup quota, so without this the reranker will oversubscribe
