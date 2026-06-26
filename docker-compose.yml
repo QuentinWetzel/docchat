@@ -1,0 +1,34 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file: .env
+    ports:
+      - "8000:8000"
+    volumes:
+      # Bind-mount your existing host HF cache instead of a fresh named volume: bge-m3 +
+      # bge-reranker-v2-m3 (~4.5GB) are already downloaded there from earlier local runs, so this
+      # skips re-downloading them entirely. Railway can't do this (no access to your host disk,
+      # and Hobby plan caps volumes at 5GB anyway) -- the deployed container still downloads fresh
+      # on every restart, see Dockerfile.
+      - ${HOME}/.cache/huggingface:/models
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/healthz"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 300s
+
+  ui:
+    build:
+      context: ./ui
+      dockerfile: Dockerfile
+    environment:
+      BACKEND_URL: http://backend:8000
+      PORT: "7860"
+    ports:
+      - "7860:7860"
+    depends_on:
+      backend:
+        condition: service_healthy

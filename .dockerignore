@@ -6,3 +6,5 @@ __pycache__/
 /models
 *.json
 !railway.json
+ui/
+docker-compose.yml

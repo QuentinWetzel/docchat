@@ -71,16 +71,23 @@ docchat/
 │   ├── fusion.py          # reciprocal rank fusion
 │   ├── query_understanding.py  # NL query -> {filters, lexical_query, semantic_query, intent_type} via Gemini
 │   ├── pipeline.py        # orchestration: retrieve -> fuse -> rerank -> generate
-│   └── server.py          # FastAPI /chat endpoint
+│   └── server.py          # FastAPI /chat + /chat/stream endpoints
 ├── scripts/
 │   ├── 01_create_schema.py   # DDL: slides table + ivfflat/hnsw index
 │   ├── 02_index_from_algolia.py  # pull records from Algolia, embed, upsert to pg
-│   └── 03_smoke_test.py      # end-to-end query against the live pipeline
+│   ├── 03_smoke_test.py      # end-to-end query against the live pipeline
+│   └── stream_demo.py        # CLI consumer of /chat/stream, prints tokens + step latencies live
+├── ui/                    # Gradio chat UI, deployed as its own container (no ML deps)
+│   ├── app.py             # talks to the backend's /chat/stream over HTTP
+│   ├── requirements.txt
+│   ├── Dockerfile
+│   └── railway.json
 ├── migrations/001_init.sql
 ├── requirements.txt
 ├── .env.example
 ├── railway.json
-└── Dockerfile
+├── Dockerfile
+└── docker-compose.yml     # backend + ui, for local dev
 ```
 
 ## Quick start
@@ -105,6 +112,24 @@ python scripts/03_smoke_test.py "What did we propose to Airbus on supply chain?"
 uvicorn app.server:app --host 0.0.0.0 --port ${PORT:-8000}
 ```
 
+## Chat UI (Gradio)
+
+A minimal chat UI lives in `ui/` and runs as its **own container**, separate from the backend —
+it has no ML dependencies (no torch/transformers), it just calls the backend's `/chat/stream`
+SSE endpoint over HTTP. Each assistant reply shows a collapsible **Steps** trace with per-stage
+latency: query understanding (intent + extracted filters/queries), retrieval (lexical/semantic/
+fusion/rerank hit counts), and the streamed answer (first-token + total latency). The trace
+collapses once the answer finishes, with all latencies summarized in its (still-visible) title.
+
+```bash
+docker compose up --build
+# backend: http://localhost:8000  (first boot downloads ~4.5GB of models, can take a few minutes)
+# UI:      http://localhost:7860
+```
+
+The UI is stateless on the backend side (no conversation memory) — each turn sends only the
+latest message; chat history is for display only, matching how `/chat/stream` already works.
+
 ## Railway notes
 
 - Add the **Postgres** plugin, then in a shell: `CREATE EXTENSION IF NOT EXISTS vector;`
@@ -122,3 +147,24 @@ uvicorn app.server:app --host 0.0.0.0 --port ${PORT:-8000}
   set `RERANK_NUM_THREADS` to that same number. `os.cpu_count()` reports the underlying host's
   core count, not the container's cgroup quota, so without this the reranker will oversubscribe
   threads against the real limit and get slower, not faster.
+
+### Deploying the Gradio UI as a second service
+
+The backend (`docchat`, say) and the UI are two separate Railway services in the **same
+project**, sharing the repo:
+
+1. In the Railway project, **New Service -> GitHub Repo** -> pick this repo again.
+2. Service Settings -> **Root Directory** -> `ui`. Railway will pick up `ui/Dockerfile` and
+   `ui/railway.json` automatically (same `DOCKERFILE` builder as the backend).
+3. Set one variable on the new service, using Railway's reference picker so it resolves over the
+   private network rather than the public URL (same pattern as `DATABASE_URL` above):
+   ```
+   BACKEND_URL=http://${{<backend-service-name>.RAILWAY_PRIVATE_DOMAIN}}:${{<backend-service-name>.PORT}}
+   ```
+   (Replace `<backend-service-name>` with whatever the backend service is actually named —
+   `docchat` if you haven't renamed it.)
+4. Deploy. The UI's own `railway.json` sets `healthcheckPath: "/"`, which Gradio serves with a
+   200 once it's up — no extra config needed there.
+
+The UI container is tiny (`gradio` + `httpx`, no torch) so it builds and boots in seconds —
+unlike the backend, it has nothing to do with the bge-m3/reranker cold-start cost above.
