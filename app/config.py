@@ -30,7 +30,7 @@ class Settings(BaseSettings):
     semantic_top_k: int = 50
     rrf_k: int = 60
     fused_top_k: int = 20
-    rerank_top_n: int = 8
+    rerank_top_n: int = 10
     rrf_lexical_weight: float = 1.0
     rrf_semantic_weight: float = 1.0
     # Cap on tokens-per-pair the cross-encoder sees. Real slide text averages ~230-260 tokens,
