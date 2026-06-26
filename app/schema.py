@@ -145,3 +145,5 @@ class ChatResponse(BaseModel):
     n_semantic: int
     n_after_fusion: int
     n_after_rerank: int
+    # Stage latencies in ms: query_understanding_ms, retrieval_ms, generation_ms, total_ms.
+    timings: dict[str, float] = Field(default_factory=dict)

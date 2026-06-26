@@ -29,16 +29,30 @@ def main() -> None:
                 continue
             event = json.loads(line[len("data: "):])
 
-            if event["type"] == "meta":
+            if event["type"] == "qu":
+                t = event["timings"]
+                print(
+                    f"=== intent={event['intent_type']} "
+                    f"lexical_query={event['lexical_query']!r} "
+                    f"semantic_query={event['semantic_query']!r} | "
+                    f"query_understanding={t['query_understanding_ms']}ms ===\n"
+                )
+            elif event["type"] == "retrieval":
+                t = event["timings"]
                 print(
                     f"=== {len(event['citations'])} citations | "
                     f"lexical={event['n_lexical']} semantic={event['n_semantic']} "
-                    f"fused={event['n_after_fusion']} reranked={event['n_after_rerank']} ===\n"
+                    f"fused={event['n_after_fusion']} reranked={event['n_after_rerank']} | "
+                    f"retrieval={t['retrieval_ms']}ms ===\n"
                 )
             elif event["type"] == "delta":
                 print(event["text"], end="", flush=True)
             elif event["type"] == "done":
-                print("\n")
+                t = event["timings"]
+                print(
+                    f"\n\n=== first_token={t['first_token_ms']}ms "
+                    f"generation={t['generation_ms']}ms total={t['total_ms']}ms ===\n"
+                )
 
 
 if __name__ == "__main__":

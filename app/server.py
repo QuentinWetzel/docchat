@@ -30,8 +30,9 @@ def chat(req: ChatRequest) -> ChatResponse:
 
 @app.post("/chat/stream")
 def chat_stream(req: ChatRequest) -> StreamingResponse:
-    """Same pipeline as /chat, but Server-Sent Events: one `meta` event with citations and
-    retrieval stats, then one `delta` event per generated token, then `done`."""
+    """Same pipeline as /chat, but Server-Sent Events: a `qu` event as soon as query
+    understanding finishes, a `retrieval` event (citations + retrieval stats) once dual
+    retrieval/fusion/rerank finish, then one `delta` event per generated token, then `done`."""
 
     def events():
         for event in get_pipeline().run_stream(req):

@@ -7,6 +7,7 @@ both legs consistently.
 from __future__ import annotations
 
 import logging
+import time
 from functools import lru_cache
 from typing import Any, Iterator
 
@@ -100,10 +101,13 @@ class Pipeline:
 
     # --- main entrypoint ----------------------------------------------------------
     def run(self, req: ChatRequest) -> ChatResponse:
-        qu, lexical, semantic, fused, top = self._retrieve(req)
+        qu, lexical, semantic, fused, top, timings = self._retrieve(req)
 
         # 5. Generate grounded answer.
+        t0 = time.monotonic()
         answer, citations = self._generate(req.query, top)
+        timings["generation_ms"] = round((time.monotonic() - t0) * 1000, 1)
+        timings["total_ms"] = round(sum(timings.values()), 1)
 
         return ChatResponse(
             answer=answer,
@@ -116,35 +120,57 @@ class Pipeline:
             n_semantic=len(semantic),
             n_after_fusion=len(fused),
             n_after_rerank=len(top),
+            timings=timings,
         )
 
     def run_stream(self, req: ChatRequest) -> Iterator[dict[str, Any]]:
-        """Same pipeline as `run`, but the final Gemini call is streamed token-by-token.
+        """Same pipeline as `run`, but the final Gemini call is streamed token-by-token, and the
+        two retrieval stages are surfaced as soon as each is ready rather than bundled together.
 
-        Yields dicts: one `meta` event (everything `run` would return except `answer`, since
-        that's not known yet), then one `delta` event per token, then a closing `done` event.
+        Yields dicts: a `qu` event the moment query understanding finishes, a `retrieval` event
+        once dual retrieval + fusion + rerank finish (these can be seconds apart from `qu` --
+        rerank in particular isn't free), then one `delta` event per generated token, then a
+        closing `done` event carrying generation/first-token/total latency.
         """
-        qu, lexical, semantic, fused, top = self._retrieve(req)
-        user_msg, citations = self._build_context(req.query, top)
-
+        qu, resolved_spec, qu_ms = self._understand(req)
         yield {
-            "type": "meta",
-            "citations": [c.model_dump() for c in citations],
-            "used_filters": qu.filters.model_dump(),
+            "type": "qu",
             "intent_type": qu.intent_type,
+            "used_filters": qu.filters.model_dump(),
             "lexical_query": qu.lexical_query,
             "semantic_query": qu.semantic_query,
+            "timings": {"query_understanding_ms": qu_ms},
+        }
+
+        lexical, semantic, fused, top, retrieval_ms = self._search_fuse_rerank(req, qu, resolved_spec)
+        user_msg, citations = self._build_context(req.query, top)
+        timings = {"query_understanding_ms": qu_ms, "retrieval_ms": retrieval_ms}
+
+        yield {
+            "type": "retrieval",
+            "citations": [c.model_dump() for c in citations],
             "n_lexical": len(lexical),
             "n_semantic": len(semantic),
             "n_after_fusion": len(fused),
             "n_after_rerank": len(top),
+            "timings": {"retrieval_ms": retrieval_ms},
         }
 
         if user_msg is None:
             yield {"type": "delta", "text": _NO_RESULTS_MSG}
-            yield {"type": "done"}
+            yield {
+                "type": "done",
+                "timings": {
+                    **timings,
+                    "first_token_ms": None,
+                    "generation_ms": 0.0,
+                    "total_ms": timings["query_understanding_ms"] + timings["retrieval_ms"],
+                },
+            }
             return
 
+        gen_start = time.monotonic()
+        first_token_ms: float | None = None
         try:
             for chunk in self.llm.stream_chat(
                 [
@@ -153,19 +179,34 @@ class Pipeline:
                 ]
             ):
                 if chunk.delta:
+                    if first_token_ms is None:
+                        first_token_ms = round((time.monotonic() - gen_start) * 1000, 1)
                     yield {"type": "delta", "text": chunk.delta}
         except Exception:
             # Same degrade-don't-fail rule as the non-streaming path (see _generate).
             logger.exception("LLM stream_chat failed")
             yield {"type": "delta", "text": _GENERATION_FAILED_MSG}
-        yield {"type": "done"}
+        generation_ms = round((time.monotonic() - gen_start) * 1000, 1)
+        yield {
+            "type": "done",
+            "timings": {
+                **timings,
+                "first_token_ms": first_token_ms,
+                "generation_ms": generation_ms,
+                "total_ms": round(
+                    timings["query_understanding_ms"] + timings["retrieval_ms"] + generation_ms, 1
+                ),
+            },
+        }
 
     # --- shared retrieval steps -----------------------------------------------------
-    def _retrieve(
-        self, req: ChatRequest
-    ) -> tuple[QueryUnderstanding, list[Candidate], list[Candidate], list[Candidate], list[Candidate]]:
-        # 1. Understand the query: explicit UI filters merged with LLM-extracted ones, plus the
-        #    lexical/semantic text each leg should actually search with.
+    def _understand(self, req: ChatRequest) -> tuple[QueryUnderstanding, MetadataFilterSpec, float]:
+        """Step 1 alone: explicit UI filters merged with LLM-extracted ones, plus the
+        lexical/semantic text each leg should actually search with. Split out from
+        `_search_fuse_rerank` so streaming callers can surface this the moment it's ready,
+        instead of waiting on retrieval too."""
+        t0 = time.monotonic()
+
         if req.explicit_filters_only:
             qu = QueryUnderstanding(
                 intent_type="hybrid",
@@ -179,11 +220,21 @@ class Pipeline:
                 qu.filters = _merge_specs(qu.filters, req.filters)
 
         resolved_spec = self._resolve_spec(qu.filters)
+        qu_ms = round((time.monotonic() - t0) * 1000, 1)
+        return qu, resolved_spec, qu_ms
 
-        # 2. Dual retrieval, each on its own slot of the query (each leg applies the same filter).
-        #    A null slot means that leg has nothing useful to search on: the lexical leg falls
-        #    back to a filters-only browse (empty query text); the semantic leg is skipped
-        #    outright, since "nearest neighbors of nothing" isn't meaningful.
+    def _search_fuse_rerank(
+        self, req: ChatRequest, qu: QueryUnderstanding, resolved_spec: MetadataFilterSpec
+    ) -> tuple[list[Candidate], list[Candidate], list[Candidate], list[Candidate], float]:
+        """Steps 2-4: dual retrieval, each on its own slot of the query (each leg applies the
+        same filter), fuse, then cross-encoder rerank.
+
+        A null slot means that leg has nothing useful to search on: the lexical leg falls back
+        to a filters-only browse (empty query text); the semantic leg is skipped outright, since
+        "nearest neighbors of nothing" isn't meaningful.
+        """
+        t0 = time.monotonic()
+
         lexical = self.algolia.search(qu.lexical_query or "", resolved_spec, settings.lexical_top_k)
         semantic = (
             self.pg.search(qu.semantic_query, resolved_spec, settings.semantic_top_k)
@@ -191,14 +242,26 @@ class Pipeline:
             else []
         )
 
-        # 3. Fuse.
         fused = reciprocal_rank_fusion(lexical, semantic)
 
-        # 4. Cross-encoder rerank the fused set against the original question.
         reranked = self._rerank(req.query, fused)
         top = reranked[: settings.rerank_top_n]
 
-        return qu, lexical, semantic, fused, top
+        retrieval_ms = round((time.monotonic() - t0) * 1000, 1)
+        return lexical, semantic, fused, top, retrieval_ms
+
+    def _retrieve(
+        self, req: ChatRequest
+    ) -> tuple[
+        QueryUnderstanding, list[Candidate], list[Candidate], list[Candidate], list[Candidate],
+        dict[str, float],
+    ]:
+        """Convenience wrapper over `_understand` + `_search_fuse_rerank` for non-streaming
+        callers that don't need the two stages surfaced separately."""
+        qu, resolved_spec, qu_ms = self._understand(req)
+        lexical, semantic, fused, top, retrieval_ms = self._search_fuse_rerank(req, qu, resolved_spec)
+        timings = {"query_understanding_ms": qu_ms, "retrieval_ms": retrieval_ms}
+        return qu, lexical, semantic, fused, top, timings
 
     def _rerank(self, query: str, candidates: list[Candidate]) -> list[Candidate]:
         if not candidates:
