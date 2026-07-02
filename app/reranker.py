@@ -40,10 +40,7 @@ class Reranker:
         batch_size: int = 16,
         max_length: int | None = None,
     ) -> list[float]:
-        """Return a relevance score per passage (higher = more relevant).
-
-        Scores are raw logits; use them for ordering, not as calibrated probabilities.
-        """
+        """Return a relevance score per passage in [0, 1] (higher = more relevant)."""
         if not passages:
             return []
         pairs = [[query, p] for p in passages]
@@ -51,7 +48,7 @@ class Reranker:
             scores = self.model.compute_score(
                 pairs,
                 batch_size=batch_size,
-                normalize=False,
+                normalize=True,
                 max_length=max_length or settings.rerank_max_length,
             )
         # FlagReranker returns a float for a single pair, list otherwise.
