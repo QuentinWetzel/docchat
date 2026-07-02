@@ -29,7 +29,7 @@ from .schema import (
     MetadataFilterSpec,
     QueryUnderstanding,
 )
-from .taxonomy import build_label_index, resolve_to_raw
+from .taxonomy import build_label_index, decode_label, resolve_to_raw
 
 # Fields whose Algolia stored values are SharePoint-encoded and need label->raw resolution.
 _ENCODED_FIELDS = {
@@ -314,6 +314,7 @@ class Pipeline:
                     source=r.source,
                     snippet=(text[:300] + "…") if len(text) > 300 else text,
                     rerank_score=c.rerank_score,
+                    client=decode_label(r.client) if r.client else None,
                 )
             )
 

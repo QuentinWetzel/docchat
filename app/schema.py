@@ -137,6 +137,8 @@ class Citation(BaseModel):
     source: Optional[str]
     snippet: str
     rerank_score: Optional[float] = None
+    # Decoded Client label (human-readable) — provenance for leak attribution.
+    client: Optional[str] = None
 
 
 class ChatResponse(BaseModel):
