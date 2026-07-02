@@ -29,6 +29,9 @@ def _format_citations(citations: list[dict]) -> str:
     lines = []
     for c in citations:
         label = f"{c.get('file_name') or 'slide'} (slide {c.get('slide_number')})"
+        score = c.get("rerank_score")
+        if score is not None:
+            label += f" · score {score:.2f}"
         lines.append(f"- [{label}]({c['web_url']})" if c.get("web_url") else f"- {label}")
     return "\n\n---\n**Sources**\n" + "\n".join(lines)
 

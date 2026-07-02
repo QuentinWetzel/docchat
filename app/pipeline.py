@@ -295,6 +295,7 @@ class Pipeline:
                     web_url=r.web_url,
                     source=r.source,
                     snippet=(text[:300] + "…") if len(text) > 300 else text,
+                    rerank_score=c.rerank_score,
                 )
             )
 

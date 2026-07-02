@@ -132,6 +132,7 @@ class Citation(BaseModel):
     web_url: Optional[str]
     source: Optional[str]
     snippet: str
+    rerank_score: Optional[float] = None
 
 
 class ChatResponse(BaseModel):
