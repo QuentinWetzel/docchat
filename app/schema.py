@@ -125,6 +125,8 @@ class ChatRequest(BaseModel):
     explicit_filters_only: bool = False
     # If False, skip the Gemini synthesis and return citations only (retrieval-only callers).
     generate: bool = True
+    # Overrides settings.rerank_top_n for this request; None uses the server default.
+    top_k: Optional[int] = None
 
 
 class Citation(BaseModel):

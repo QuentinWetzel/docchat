@@ -263,7 +263,7 @@ class Pipeline:
         fused = reciprocal_rank_fusion(lexical, semantic)
 
         reranked = self._rerank(req.query, fused)
-        top = reranked[: settings.rerank_top_n]
+        top = reranked[: req.top_k or settings.rerank_top_n]
 
         retrieval_ms = round((time.monotonic() - t0) * 1000, 1)
         return lexical, semantic, fused, top, retrieval_ms
