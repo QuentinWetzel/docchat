@@ -103,6 +103,24 @@ class Pipeline:
     def run(self, req: ChatRequest) -> ChatResponse:
         qu, lexical, semantic, fused, top, timings = self._retrieve(req)
 
+        if not req.generate:
+            _, citations = self._build_context(req.query, top)
+            timings["generation_ms"] = 0.0
+            timings["total_ms"] = round(sum(timings.values()), 1)
+            return ChatResponse(
+                answer="",
+                citations=citations,
+                used_filters=qu.filters,
+                intent_type=qu.intent_type,
+                lexical_query=qu.lexical_query,
+                semantic_query=qu.semantic_query,
+                n_lexical=len(lexical),
+                n_semantic=len(semantic),
+                n_after_fusion=len(fused),
+                n_after_rerank=len(top),
+                timings=timings,
+            )
+
         # 5. Generate grounded answer.
         t0 = time.monotonic()
         answer, citations = self._generate(req.query, top)

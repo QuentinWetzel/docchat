@@ -123,6 +123,8 @@ class ChatRequest(BaseModel):
     filters: Optional[MetadataFilterSpec] = None
     # If True, skip LLM filter extraction and use only `filters`.
     explicit_filters_only: bool = False
+    # If False, skip the Gemini synthesis and return citations only (retrieval-only callers).
+    generate: bool = True
 
 
 class Citation(BaseModel):
